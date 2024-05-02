@@ -1,6 +1,6 @@
 #lang eopl
 ;----------------------- Cristian Daniel Medina Ortiz - 2310117
-;------------------------https://github.com/agro123/Taller-3-flp
+
 ;******************************************************************************************
 
 ;; La definición BNF para las expresiones del lenguaje:
@@ -42,26 +42,21 @@
 ;****************************************************************************************** Lexica y la gramatica
 
 ; / 1. definir la lexica y la gramatica
-;Especificación Léxica - tokens
+;Especificación Léxica
 (define scanner-spec
-'((white-space
-   (whitespace) skip)
-  (comentario
-   ("%" (arbno (not #\newline))) skip)
-  (identificador
-   ("@" letter (arbno (or letter digit "?"))) symbol)
-  (texto
-   (letter (arbno (or letter digit whitespace))) string)
-  (numero
-   (digit (arbno digit)) number)
-  (numero
-   ("-" digit (arbno digit)) number)
-  (numero
-   (digit (arbno digit)) number)
-  (numero
-   (digit (arbno digit) "." digit (arbno digit)) number)
-  (numero
-   ("-" digit (arbno digit) "." digit (arbno digit)) number)))
+'((white-space (whitespace) skip)
+  (comentario ("//" (arbno (not #\newline))) skip)
+  
+  (identificador ("@" letter (arbno (or letter digit "?"))) symbol)
+  
+  (texto (letter (arbno (or letter digit whitespace "_" "-" ":" "."))) string)
+  (char ("'"(or letter digit)"'") string)
+  
+  (numero (digit (arbno digit)) number)
+  (numero ("-" digit (arbno digit)) number)
+  (numero (digit (arbno digit)) number)
+  (numero (digit (arbno digit) "." digit (arbno digit)) number)
+  (numero ("-" digit (arbno digit) "." digit (arbno digit)) number)))
 
 ;Especificación Sintáctica (gramática)
 
@@ -70,7 +65,8 @@
 
     ;;;Expresiones
     (expresion (numero) numero-lit)
-    (expresion ("\""texto "\"") texto-lit)
+    (expresion ("\""texto"\"") texto-lit)
+    
     (expresion (identificador) var-exp)
     (expresion
      ("(" expresion primitiva-binaria expresion ")") primapp-bin-exp)
@@ -82,6 +78,10 @@
     (expresion ("procedimiento ("  (separated-list identificador ",") ")" " haga " expresion " finProc") procedimiento-exp)
     (expresion ("evaluar " expresion "(" (separated-list expresion ",") ")" " finEval") app-exp)
     (expresion ("declararRec (" (arbno identificador "=" "(" (separated-list identificador ",") ")" "=>" expresion ";") ")" "{" expresion "}") procRec-exp)
+
+    ;;;;;;booleanos
+    (expresion ("FALSE") bool-false)
+    (expresion ("TRUE") bool-true)
 
     ;;;;;;Primitivas
     (primitiva-binaria ("+") primitiva-suma)
@@ -148,6 +148,7 @@
     (cases expresion exp
       (numero-lit (num) num)
       (texto-lit (txt) txt)
+
       (var-exp (id) (buscar-variable env id));; buscar el valor en el ambiente
       (primapp-bin-exp (exp1 prim-binaria exp2) ((eval-binPrim prim-binaria) (eval-expression exp1 env) (eval-expression exp2 env)))
       (primapp-un-exp (prim-unaria exp) ((eval-unaPrim prim-unaria) (eval-expression exp env)))
@@ -170,6 +171,8 @@
       (procRec-exp (nombres ids cuerpos recursion)
                    (eval-expression recursion
                                    (extender-ambiente-recursivo nombres ids cuerpos env)))
+      (bool-false () #f)
+      (bool-true () #t)
                      
       (else (eopl:error "ERROR"))
       )))
