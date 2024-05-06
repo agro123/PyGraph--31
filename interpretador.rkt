@@ -95,6 +95,7 @@
     (prim-binary ("~") primitiva-resta)
     (prim-binary ("*") primitiva-multi)
     (prim-binary ("/") primitiva-div)
+    (prim-binary ("%") primitiva-res)
     (prim-binary (" concat ") primitiva-concat)
     (prim-binary ("==") primitiva-igualdad)
     (prim-binary ("<>") primitiva-diferencia)
@@ -217,6 +218,7 @@
       (primitiva-resta () (lambda (val1 val2) (if (and (number? val1) (number? val2)) (- val1 val2) (eopl:error 'primitiva-resta "Error, esta operacion solo permite numeros"))))
       (primitiva-div () (lambda (val1 val2) (if (and (number? val1) (number? val2)) (/ val1 val2) (eopl:error 'primitiva-div "Error, esta operacion solo permite numeros"))))
       (primitiva-multi () (lambda (val1 val2) (if (and (number? val1) (number? val2)) (* val1 val2) (eopl:error 'primitiva-multi "Error, esta operacion solo permite numeros"))))
+      (primitiva-res () (lambda (val1 val2) (if (and (number? val1) (number? val2)) (remainder val1 val2) (eopl:error 'primitiva-res "Error, esta operacion solo permite numeros"))))
       (primitiva-concat () concat)
 
       (primitiva-igualdad () (lambda (val1 val2) (if (equal? val1 val2) 1 0)))
