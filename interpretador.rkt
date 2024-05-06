@@ -50,7 +50,7 @@
   (identifier ("@" letter (arbno (or letter digit))) symbol)
   
   (text (letter (arbno (or letter digit whitespace "_" "-" ":" "."))) string)
-  (char ((or letter digit)) string)
+  (char ("'"(or letter digit)"'") symbol)
   
   (number (digit (arbno digit)) number)
   (number ("-" digit (arbno digit)) number)
@@ -67,23 +67,25 @@
     (expression (identifier) var-exp)
 
     ;;Definiciones
-    (expression ("var " (separated-list identifier "=" expression ",") ";" " in " "{" expression "}") variableLocal-exp)
-    (expression ("const " (separated-list identifier "=" expression ",") ";" " in " "{" expression "}") const-exp)
-    (expression ("rec " (separated-list identifier "=" expression ",") ";" " in " "{" expression "}") rec-exp)
-
+    (expression ("var " (separated-list identifier "=" expression ",") " in " "{" expression "}") variable-exp)
+    (expression ("const " (separated-list identifier "=" expression ",") " in " "{" expression "}") const-exp)
+    (expression  ("rec " (arbno identifier "=" "(" (separated-list identifier ",") ")" "=>" "{" expression "}") " in " "{" expression "}") rec-exp)
+    
     ;;Datos
     (expression (number) number-lit)
-    (expression ("'"char"'") text-lit)
+    (expression (char) char-lit)
     (expression ("\""text"\"") text-lit)
 
     ;;Estructura de control
+    (expression ("begin {" expression (arbno ";" expression) "}") begin-exp)
     (expression ("if (" expression ")" " then {" expression "} else {" expression "}") if-exp)
-    (expression ("fun ("  (separated-list identifier ",") ")" "{" expression "}") proc-exp)
-    (expression ("%execute :" expression "(" (separated-list expression ",") ")") app-exp)
+    (expression ("func ("  (separated-list identifier ",") ")" "{" expression "}") proc-exp)
+    (expression ("resultOf :" expression "(" (separated-list expression ",") ")") app-exp)
+    (expression ("set " identifier "->" expression) set-exp)
 
     ;;Booleanos
-    (expression ("FALSE") bool-false)
-    (expression ("TRUE") bool-true)
+    (expression ("false") bool-false)
+    (expression ("true") bool-true)
 
     ;;Primitivas
     (expression ("(" expression prim-binary expression ")") primapp-bin-exp)
@@ -95,7 +97,7 @@
     (prim-binary ("/") primitiva-div)
     (prim-binary (" concat ") primitiva-concat)
     (prim-binary ("==") primitiva-igualdad)
-    (prim-binary ("!=") primitiva-diferencia)
+    (prim-binary ("<>") primitiva-diferencia)
     
     (prim-unary ("longitud") primitiva-longitud)
     (prim-unary ("add1") primitiva-add1)
@@ -136,7 +138,7 @@
     (extend-env
      '(@a @b @c @d @e @PI)
      '(1 2 3 "hola" "FLP" 3.14159265359)
-     (empty-env))))
+     (empty-enviroment))))
 
 ;;Evaluar programa
 (define eval-program
@@ -151,19 +153,45 @@
   (lambda (exp env)
     (cases expression exp
       (number-lit (num) num)
+      (char-lit (char) char)
       (text-lit (txt) txt)
+   
+      ;;Evaluar Identificadores
+      (var-exp (id) (find-var env id))
 
-      (var-exp (id) (buscar-variable env id));; buscar el valor en el ambiente
+      ;;Evaluar Definiciones
+      (variable-exp (ids exps body)
+                    (let ((args (list-exps exps env)))
+                         (eval-expression body (extend-env-var ids args env))))
+      (const-exp (ids exps body)
+                 (let ((args (list-exps exps env)))
+                      (eval-expression body (extend-env ids args env))))
+      (rec-exp (procNames procParams procBodies exp)
+               (eval-expression exp
+                                (extend-env-rec procNames procParams procBodies env)))
+
+      ;;Evaluar primitivas
       (primapp-bin-exp (exp1 prim-binaria exp2) ((eval-binPrim prim-binaria) (eval-expression exp1 env) (eval-expression exp2 env)))
       (primapp-un-exp (prim-unaria exp) ((eval-unaPrim prim-unaria) (eval-expression exp env)))
-      
+
+      ;;Evaluar estructuras de control
+      (set-exp (id new-exp)
+               (begin
+                  (setref!
+                          (find-var-to-set env id)
+                          (eval-expression new-exp env))
+                   1))
+      (begin-exp (exp exps) 
+                 (let loop ((acc (eval-expression exp env)) (exps exps))
+                      (if (null? exps) 
+                           acc
+                          (loop (eval-expression (car exps) env)
+                                (cdr exps)))))
       (if-exp (pred-exp true-exp false-exp)
               (if (valor-verdad? (eval-expression pred-exp env))
                   (eval-expression true-exp env)
                   (eval-expression false-exp env)))
-      (const-exp (ids exps cuerpo)
-                         (let ((args (list-exps exps env)))
-                              (eval-expression cuerpo (extend-env ids args env))))
+      
       (proc-exp (ids cuerpo) (cerradura ids cuerpo env))
       (app-exp (exp exps)
                (let ((proc (eval-expression exp env))
@@ -172,16 +200,14 @@
                      (aplicar-proc proc args)
                      (eopl:error 'eval-expression
                                  "Attempt to apply non-procedure ~s"))))
-      (rec-exp (ids exps body)
-                   (eval-expression body
-                                   (extend-env-rec ids exps env)))
-      (bool-false () #f)
-      (bool-true () #t)
+      
+      (bool-false () 0)
+      (bool-true () 1)
                      
       (else (eopl:error "ERROR"))
       )))
 
-;******* primitivas
+;****************************************************************************************** primitivas
   
 ;obtener la operacion de  primitiva binaria
 (define eval-binPrim 
@@ -211,49 +237,112 @@
 (define scheme-value? (lambda (v) #t))
 
 ;datatype de ambiente
-(define-datatype ambiente ambiente?
-  (vacio)
-  (extendido
-   (syms (list-of symbol?))
-   (vec (list-of scheme-value?))
-   (env ambiente?))
-  (rec-env (nombres (list-of symbol?))
-             (ids (list-of (list-of symbol?)))
-             (cuerpo (list-of expression?))
-             (old-env ambiente?)))
+(define-datatype environment environment?
+  (empty-env)
+
+  ;;Ambiente para constantes
+  (extended-env (ids (list-of symbol?))
+                (exps (list-of scheme-value?))
+                (env environment?))
+  ;;Ambiente para recursion
+  (rec-env  (procNames (list-of symbol?))
+            (procParams (list-of (list-of symbol?)))
+            (procBodies (list-of expression?))
+            (old-env environment?))
+  ;;Ambiente para variables
+  (var-env (ids (list-of symbol?))
+           (exps vector?)
+           (env environment?)))
 
 ;Ambiente vacío
-(define empty-env  
+(define empty-enviroment
   (lambda ()
-    (vacio)))
+    (empty-env)))
 
-;Extender ambiente
+;Extender ambiente constantes
 (define extend-env
   (lambda (syms vals env)
-    (extendido syms vals env)))
+    (extended-env syms vals env)))
+
+;Extender ambiente recursion
+(define extend-env-rec
+  (lambda (procNames procParams procBodies old-env)
+    (rec-env procNames procParams procBodies old-env)))
+
+;Extender ambiente variables
+(define extend-env-var
+  (lambda (ids exps env)
+    (var-env ids (list->vector exps) env)))
 
 ;Buscar un identificador en un ambiente
-(define buscar-variable
-  (lambda (env sym)
-    (cases ambiente env
-      (vacio () (eopl:error 'buscar-variable "Error, la variable no existe ~s" sym))
-      (extendido (syms vals env)
-                           (let ((pos (list-find-position sym syms)))
+(define find-var ;;apply-env
+  (lambda (env id)
+    (cases environment env
+      (empty-env () (eopl:error 'find-var "Error, la variable no existe ~s" id))
+      (extended-env (ids exps env)
+                           (let ((pos (list-find-position id ids)))
                              (if (number? pos)
-                                 (list-ref vals pos)
-                                 (buscar-variable env sym))))
-      (rec-env (nombres ids cuerpos old-env)
-                             (let ((pos (list-find-position sym nombres)))
+                                 (list-ref exps pos)
+                                 (find-var env id))))
+      (rec-env (procNames procParams procBodies old-env)
+                             (let ((pos (list-find-position id procNames)))
                                          (if (number? pos)
-                                             (cerradura (list-ref ids pos)
-                                                        (list-ref cuerpos pos)
-                                                         env)
-                                             (buscar-variable old-env sym)))))))
+                                             (cerradura (list-ref procParams pos)
+                                                        (list-ref procBodies pos)
+                                                         old-env)
+                                             (find-var old-env id))))
+      (var-env (ids exps env)
+                           (let ((pos (list-find-position id ids)))
+                             (if (number? pos)
+                                 (deref (a-ref pos exps))
+                                 (find-var env id)))))))
+;;Buscar una variable para ser modificada
+(define find-var-to-set ;;apply-env-ref
+  (lambda (env id)
+    (cases environment env
+      (empty-env () (eopl:error 'find-var "Error, la variable no existe ~s" id))
+      
+      (extended-env (ids exps env)
+                           (let ((pos (list-find-position id ids)))
+                             (if (number? pos)
+                                 (eopl:error 'find-var "Error, una constante no puede ser modificada ~s" id);; si la variable a modificar es una constante retorna un error
+                                 (find-var-to-set env id))))
+      (rec-env (procNames procParams procBodies old-env)
+                             (let ((pos (list-find-position id procNames)))
+                                         (if (number? pos)
+                                             (eopl:error 'find-var "Error, un procemiento recursivo no puede ser modificado ~s" id);; si la variable a modificar es un procedimiento recursivo retorna un error
+                                             (find-var old-env id))))
+      (var-env (ids exps env)
+                           (let ((pos (list-find-position id ids)))
+                             (if (number? pos)
+                                 (a-ref pos exps)
+                                 (find-var-to-set env id)))))))
+;*******************************************************************************************Referencias
 
-;Crea un ambiente extendido para procedimientos recursivos
-(define extend-env-rec
-  (lambda (ids exps old-env)
-    (rec-env ids exps old-env)))
+;;Datatype referencia
+(define-datatype reference reference?
+  (a-ref (position integer?)
+         (vec vector?)))
+
+(define deref
+  (lambda (ref)
+    (primitive-deref ref)))
+
+(define primitive-deref
+  (lambda (ref)
+    (cases reference ref
+      (a-ref (pos vec)
+             (vector-ref vec pos)))))
+
+(define setref!
+  (lambda (ref val)
+    (primitive-setref! ref val)))
+
+(define primitive-setref!
+  (lambda (ref val)
+    (cases reference ref
+      (a-ref (pos vec)
+             (vector-set! vec pos val)))))
 
 ;******************************************************************************************* Procedimientos
 ;Datatype Procedemiento
@@ -261,7 +350,7 @@
   (cerradura
    (lista-ID (list-of symbol?))
    (exp expression?)
-   (amb ambiente?)))
+   (amb environment?)))
 
 ;Evalua las expresiones de un procedimiento en el ambiente extendido correspondiente
 (define aplicar-proc
