@@ -44,14 +44,14 @@
 ; / 1. definir la lexica y la gramatica
 ;Especificación Léxica
 (define scanner-spec
-'((white-space (whitespace) skip)
+'((whitespace (whitespace) skip)
   (comment ("//" (arbno (not #\newline))) skip)
   
   (identifier ("@" letter (arbno (or letter digit))) symbol)
   
   (text (letter (arbno (or letter digit whitespace "_" "-" ":" "."))) string)
   (char ("'"(or letter digit)"'") symbol)
-  
+        
   (number (digit (arbno digit)) number)
   (number ("-" digit (arbno digit)) number)
   (number (digit (arbno digit)) number)
@@ -67,25 +67,41 @@
     (expression (identifier) var-exp)
 
     ;;Definiciones
-    (expression ("var " (separated-list identifier "=" expression ",") " in " "{" expression "}") variable-exp)
-    (expression ("const " (separated-list identifier "=" expression ",") " in " "{" expression "}") const-exp)
-    (expression  ("rec " (arbno identifier "=" "(" (separated-list identifier ",") ")" "=>" "{" expression "}") " in " "{" expression "}") rec-exp)
+    (expression ("var (" (separated-list identifier "=" expression ",") ") in {" expression "}") variable-exp)
+    (expression ("const (" (separated-list identifier "=" expression ",") ") in {" expression "}") const-exp)
+    (expression  ("rec (" (arbno identifier "=" "(" (separated-list identifier ",") ")" "=>" "{" expression "}") ") in {" expression "}") rec-exp)
     
     ;;Datos
     (expression (number) number-lit)
     (expression (char) char-lit)
     (expression ("\""text"\"") text-lit)
-
+    (expression ("true") bool-true-lit)
+    (expression ("false") bool-false-lit)
+    
     ;;Estructura de control
-    (expression ("begin {" expression (arbno ";" expression) "}") begin-exp)
-    (expression ("if (" expression ")" " then {" expression "} else {" expression "}") if-exp)
-    (expression ("func ("  (separated-list identifier ",") ")" "{" expression "}") proc-exp)
-    (expression ("resultOf :" expression "(" (separated-list expression ",") ")") app-exp)
+    (expression ("begin " "{" expression (arbno ";" expression) "}") begin-exp)
+    (expression ("if (" expr-bool ")" " then {" expression "} else {" expression "}") if-exp)
+    (expression ("func (" (separated-list identifier ",") ")" "{" expression "}") proc-exp)
+    (expression ("resultOf " expression "(" (separated-list expression ",") ")") app-exp)
     (expression ("set " identifier "->" expression) set-exp)
 
     ;;Booleanos
-    (expression ("false") bool-false)
-    (expression ("true") bool-true)
+    (expression (expr-bool) bool-exp)
+    (expr-bool (oper-bin-bool "(" expression "," expression ")?") pred-bin-exp)
+    (expr-bool (oper-un-bool "(" expr-bool ")?") pred-un-exp)
+   
+    ;;Predicados
+    (oper-bin-bool ("==") pred-igualdad)
+    (oper-bin-bool ("<>") pred-diferencia)
+    (oper-bin-bool (">") pred-mayor-que)
+    (oper-bin-bool ("<") pred-menor-que)
+    (oper-bin-bool (">=") pred-mayor-igual-que)
+    (oper-bin-bool ("<=") pred-menor-igual-que)
+    (oper-bin-bool ("<=") pred-menor-igual-que)
+    (oper-bin-bool ("and") pred-and)
+    (oper-bin-bool ("or") pred-or)
+    
+    (oper-un-bool ("not") pred-not)
 
     ;;Primitivas
     (expression ("(" expression prim-binary expression ")") primapp-bin-exp)
@@ -97,8 +113,6 @@
     (prim-binary ("/") primitiva-div)
     (prim-binary ("%") primitiva-res)
     (prim-binary (" concat ") primitiva-concat)
-    (prim-binary ("==") primitiva-igualdad)
-    (prim-binary ("<>") primitiva-diferencia)
     
     (prim-unary ("longitud") primitiva-longitud)
     (prim-unary ("add1") primitiva-add1)
@@ -153,10 +167,13 @@
 (define eval-expression
   (lambda (exp env)
     (cases expression exp
+      ;;Datos
       (number-lit (num) num)
       (char-lit (char) char)
       (text-lit (txt) txt)
-   
+      (bool-true-lit () #t)
+      (bool-false-lit () #f)
+
       ;;Evaluar Identificadores
       (var-exp (id) (find-var env id))
 
@@ -176,6 +193,7 @@
       (primapp-un-exp (prim-unaria exp) ((eval-unaPrim prim-unaria) (eval-expression exp env)))
 
       ;;Evaluar estructuras de control
+      (bool-exp (exp) (eval-boolean exp env))
       (set-exp (id new-exp)
                (begin
                   (setref!
@@ -189,7 +207,7 @@
                           (loop (eval-expression (car exps) env)
                                 (cdr exps)))))
       (if-exp (pred-exp true-exp false-exp)
-              (if (valor-verdad? (eval-expression pred-exp env))
+              (if (eval-boolean pred-exp env)
                   (eval-expression true-exp env)
                   (eval-expression false-exp env)))
       
@@ -201,14 +219,40 @@
                      (aplicar-proc proc args)
                      (eopl:error 'eval-expression
                                  "Attempt to apply non-procedure ~s"))))
-      
-      (bool-false () 0)
-      (bool-true () 1)
                      
-      (else (eopl:error "ERROR"))
+      (else (eopl:error "ERROR eval-expression"))
       )))
+;***************************************************************************************** Predicados
 
-;****************************************************************************************** primitivas
+;;Evaluar expresion booleana
+(define eval-boolean
+  (lambda (bool env)
+    (cases expr-bool bool
+      (pred-bin-exp (pred exp1 exp2) ((eval-pred-binary pred) (eval-expression exp1 env) (eval-expression exp2 env)))
+      (pred-un-exp (pred exp1) ((eval-pred-unary pred) (eval-boolean exp1 env)))
+      (else (eopl:error "ERROR eval-boolean")))))
+
+;;Evaluar predicado binario
+(define eval-pred-binary
+  (lambda (pred)
+    (cases oper-bin-bool pred
+      (pred-igualdad () (lambda (val1 val2) (equal? val1 val2)))
+      (pred-diferencia () (lambda (val1 val2) (not (equal? val1 val2))))
+      (pred-mayor-que () (lambda (val1 val2) (> val1 val2)))
+      (pred-menor-que () (lambda (val1 val2) (< val1 val2)))
+      (pred-mayor-igual-que () (lambda (val1 val2) (>= val1 val2)))
+      (pred-menor-igual-que () (lambda (val1 val2) (<= val1 val2)))
+      (pred-and () (lambda (val1 val2) (and val1 val2)))
+      (pred-or () (lambda (val1 val2) (or val1 val2)))
+      (else (eopl:error "ERROR eval-pred-binary")))))
+
+;;Evaluar predicado binario
+(define eval-pred-unary
+  (lambda (pred)
+    (cases oper-un-bool pred
+      (pred-not () (lambda (val) (not val)))
+      (else (eopl:error "ERROR eval-pred-unary")))))
+;****************************************************************************************** Primitivas
   
 ;obtener la operacion de  primitiva binaria
 (define eval-binPrim 
@@ -220,9 +264,6 @@
       (primitiva-multi () (lambda (val1 val2) (if (and (number? val1) (number? val2)) (* val1 val2) (eopl:error 'primitiva-multi "Error, esta operacion solo permite numeros"))))
       (primitiva-res () (lambda (val1 val2) (if (and (number? val1) (number? val2)) (remainder val1 val2) (eopl:error 'primitiva-res "Error, esta operacion solo permite numeros"))))
       (primitiva-concat () concat)
-
-      (primitiva-igualdad () (lambda (val1 val2) (if (equal? val1 val2) 1 0)))
-      (primitiva-diferencia () (lambda (val1 val2) (if (not (equal? val1 val2)) 1 0)))
       (else (eopl:error "ERROR")))))
 
 ;obtener la operacion de  primitiva unaria
@@ -280,7 +321,7 @@
 (define find-var ;;apply-env
   (lambda (env id)
     (cases environment env
-      (empty-env () (eopl:error 'find-var "Error, la variable no existe ~s" id))
+      (empty-env () (eopl:error 'find-var "Error, la variable ~s no existe" id))
       (extended-env (ids exps env)
                            (let ((pos (list-find-position id ids)))
                              (if (number? pos)
@@ -291,7 +332,7 @@
                                          (if (number? pos)
                                              (cerradura (list-ref procParams pos)
                                                         (list-ref procBodies pos)
-                                                         old-env)
+                                                         env)
                                              (find-var old-env id))))
       (var-env (ids exps env)
                            (let ((pos (list-find-position id ids)))
@@ -302,7 +343,7 @@
 (define find-var-to-set ;;apply-env-ref
   (lambda (env id)
     (cases environment env
-      (empty-env () (eopl:error 'find-var "Error, la variable no existe ~s" id))
+      (empty-env () (eopl:error 'find-var "Error, la variable ~s no existe " id))
       
       (extended-env (ids exps env)
                            (let ((pos (list-find-position id ids)))
@@ -403,11 +444,11 @@
 
 ;------------------------------------------------Solucion taller------------------------------------------
 ;A)
-;declarar (
-;  @radio=2.5;
-;  @areaCirculo=procedimiento (@r) haga (@PI*(@r * @r)) finProc
-;) { 
-;    evaluar @areaCirculo (@radio) finEval  
+;const (
+;  @radio=2.5,
+;  @areaCirculo= func (@r) { (@PI*(@r * @r)) }
+;) in { 
+;    resultOf @areaCirculo(@radio)
 ;}
 
 ;B)
@@ -455,6 +496,16 @@
 ;      evaluar @decorate ("estudiante de UNIVALLE") finEval
 ;    }
 ;}
-
+(scan&parse "const (
+  @radio=2.5,
+  @areaCirculo= func (@r) { (@PI*(@r * @r)) }
+) in { 
+    resultOf @areaCirculo(@radio)
+}")
+(scan&parse "rec ( 
+  @factorial=(@n)=> { if (==(@n,1)?) then {1} else {(@n * resultOf @factorial(sub1(@n)))} }
+) in {  
+    resultOf @factorial(10)
+}")
 
 (interpreter)
