@@ -85,6 +85,10 @@
     (expression ("resultOf " expression "(" (separated-list expression ",") ")") app-exp)
     (expression ("set " identifier "->" expression) set-exp)
 
+    ;;Listas
+    (expression (expr-list) list-exp)
+    (expr-list ("[" (separated-list expression ";") "]") list-lit)
+
     ;;Booleanos
     (expression (expr-bool) bool-exp)
     (expr-bool (oper-bin-bool "(" expression "," expression ")?") pred-bin-exp)
@@ -192,8 +196,13 @@
       (primapp-bin-exp (exp1 prim-binaria exp2) ((eval-binPrim prim-binaria) (eval-expression exp1 env) (eval-expression exp2 env)))
       (primapp-un-exp (prim-unaria exp) ((eval-unaPrim prim-unaria) (eval-expression exp env)))
 
-      ;;Evaluar estructuras de control
+      ;;Evaluar listas
+      (list-exp (exps) (eval-list exps env))
+
+      ;;Evaluar booleanos
       (bool-exp (exp) (eval-boolean exp env))
+
+      ;;Evaluar estructuras de control
       (set-exp (id new-exp)
                (begin
                   (setref!
@@ -222,7 +231,15 @@
                      
       (else (eopl:error "ERROR eval-expression"))
       )))
-;***************************************************************************************** Predicados
+;***************************************************************************************** Listas
+;;Evaluar lista
+(define eval-list
+  (lambda (lst env)
+    (cases expr-list lst
+      (list-lit (exps) (list-exps exps env))
+      (else (eopl:error "ERROR eval-list")))))
+
+;***************************************************************************************** Booleanos
 
 ;;Evaluar expresion booleana
 (define eval-boolean
