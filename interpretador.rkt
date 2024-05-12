@@ -88,9 +88,14 @@
     ;;Listas
     (expression (expr-list) list-exp)
     (expr-list ("[" (separated-list expression ";") "]") list-lit)
+    (expr-list ("empty") empty-list)
     (expression (prim-list "(" expression ")") primapp-list-exp)
     (expression (prim-bin-list "(" (separated-list expression ",") ")") primbin-list-exp)
-    (expression ("empty") empty-list-exp)
+    
+    ;;vectores
+    (expression (expr-vector) vector-exp)
+    (expression (prim-vector "(" (separated-list expression ",") ")") prim-vector-exp)
+    (expr-vector ("vector[" (separated-list expression ";") "]") vector-lit)
 
     ;;Booleanos
     (expression (expr-bool) bool-exp)
@@ -114,7 +119,15 @@
     (prim-list ("empty?") prim-list-empty?)
     (prim-list ("car") prim-list-car)
     (prim-list ("cdr") prim-list-cdr)
+    (prim-list ("list?") prim-list-list?)
     (prim-bin-list ("append") prim-list-append)
+    (prim-bin-list ("make-list") prim-list-make)
+ 
+    ;;primitivas vectores
+    (prim-vector ("make-vector") prim-vector-make)
+    (prim-vector ("ref-vector") prim-vector-ref)
+    (prim-vector ("set-vector") prim-vector-set)
+    (prim-vector ("vector?") prim-vector-vector?)
 
     ;;Primitivas
     (expression ("(" expression prim-binary expression ")") primapp-bin-exp)
@@ -206,10 +219,13 @@
       (primapp-un-exp (prim-unaria exp) ((eval-unaPrim prim-unaria) (eval-expression exp env)))
 
       ;;Evaluar listas
-      (empty-list-exp () '())
       (list-exp (exps) (eval-list exps env))
       (primapp-list-exp (prim exp) ((eval-prim-list prim) (eval-expression exp env)))
       (primbin-list-exp (prim exps) ((eval-bin-prim-list prim) (list-exps exps env)))
+
+      ;;Evaluar vectores
+      (vector-exp (exps) (eval-vector exps env))
+      (prim-vector-exp (prim exps) (eval-prim-vector prim exps env))
   
       ;;Evaluar booleanos
       (bool-exp (exp) (eval-boolean exp env))
@@ -248,9 +264,9 @@
 (define eval-list
   (lambda (lst env)
     (cases expr-list lst
+      (empty-list () '())
       (list-lit (exps) (list-exps exps env))
       (else (eopl:error "ERROR eval-list")))))
-
 ;;Evaluar primitivas sobre listas
 (define eval-prim-list
   (lambda (prim)
@@ -258,13 +274,47 @@
       (prim-list-empty? () (lambda (lst) (if (list? lst) (eqv? empty lst) (eopl:error 'prim-list-empty? "Error, esta operacion solo permite listas"))))
       (prim-list-car () (lambda (lst) (if (list? lst) (car lst) (eopl:error 'prim-list-car "Error, esta operacion solo permite listas"))))
       (prim-list-cdr () (lambda (lst) (if (list? lst) (cdr lst) (eopl:error 'prim-list-cdr "Error, esta operacion solo permite listas"))))
+      (prim-list-list? () (lambda (lst) (list? lst)))
       (else (eopl:error "ERROR eval-prim-list")))))
 
 (define eval-bin-prim-list
   (lambda (prim)
     (cases prim-bin-list prim
       (prim-list-append () (lambda (lst) (if ((list-of list?) lst) (apply append lst) (eopl:error 'prim-list-append "Error, esta operacion solo permite listas"))))
+      (prim-list-make () (lambda (values) (apply list values)));Crea una lista con los valores dados
       (else (eopl:error "ERROR eval-bin-prim-list")))))
+
+;***************************************************************************************** Vectores
+;;Evaluar vector
+(define eval-vector
+  (lambda (vec env)
+    (cases expr-vector vec
+      (vector-lit (exps) (apply vector (list-exps exps env)))
+      (else (eopl:error "ERROR eval-vector")))))
+
+;;Evaluar primitivas sobre Vectores *Recibe una lista de expresiones pero solo evalua las expresiones necesarias para cada primitiva
+(define eval-prim-vector
+  (lambda (prim exps env)
+    (cases prim-vector prim
+      (prim-vector-vector? () (vector? (eval-expression (car exps) env)))
+      (prim-vector-make () (let ((np (eval-expression (car exps) env))); numero de posiciones
+                                (if (and (number? np) (> np 0))
+                                    (make-vector np)
+                                    (eopl:error 'prim-vector-make "Error, parametros no validos"))))
+      (prim-vector-set () (let ((vec (eval-expression (car exps) env)); vector
+                                (pos (eval-expression (car (cdr exps)) env)) ; pos
+                                (val (eval-expression (car (cddr exps)) env))) ; valor
+                                (if (and (vector? vec) (number? pos))
+                                    (vector-set! vec pos val)
+                                    (eopl:error 'prim-vector-set "Error,  parametros no validos"))))
+      (prim-vector-ref () (let ((vec (eval-expression (car exps) env)); vector
+                                (pos (eval-expression (car (cdr exps)) env))) ; pos
+                                (if (and (vector? vec) (number? pos))
+                                    (vector-ref vec pos)
+                                    (eopl:error 'prim-vector-ref "Error,  parametros no validos"))))
+      (else (eopl:error "ERROR prim-vector-vector?")))))
+
+
 ;***************************************************************************************** Booleanos
 
 ;;Evaluar expresion booleana
@@ -414,12 +464,13 @@
   (lambda (ref)
     (primitive-deref ref)))
 
+;;obtener el valor de la referencia
 (define primitive-deref
   (lambda (ref)
     (cases reference ref
       (a-ref (pos vec)
              (vector-ref vec pos)))))
-
+;;cambiar el valor de la referencia
 (define setref!
   (lambda (ref val)
     (primitive-setref! ref val)))
@@ -540,6 +591,7 @@
 ;    }
 ;}
 (scan&parse "const ( @list=[2;3;4;5;6;7], @emptyList=[]) in { empty?(@list) }")
+(scan&parse "const ( @vector=vector[2;3;4;5;6;7], @vector2=make-vector(10), @list=[1;2;3;4;5]) in { vector?(@vector2) }")
 (scan&parse "const (
   @radio=2.5,
   @areaCirculo= func (@r) { (@PI*(@r * @r)) }
