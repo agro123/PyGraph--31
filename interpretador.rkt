@@ -88,6 +88,9 @@
     ;;Listas
     (expression (expr-list) list-exp)
     (expr-list ("[" (separated-list expression ";") "]") list-lit)
+    (expression (prim-list "(" expression ")") primapp-list-exp)
+    (expression (prim-bin-list "(" (separated-list expression ",") ")") primbin-list-exp)
+    (expression ("empty") empty-list-exp)
 
     ;;Booleanos
     (expression (expr-bool) bool-exp)
@@ -106,6 +109,12 @@
     (oper-bin-bool ("or") pred-or)
     
     (oper-un-bool ("not") pred-not)
+
+    ;;primitivas listas
+    (prim-list ("empty?") prim-list-empty?)
+    (prim-list ("car") prim-list-car)
+    (prim-list ("cdr") prim-list-cdr)
+    (prim-bin-list ("append") prim-list-append)
 
     ;;Primitivas
     (expression ("(" expression prim-binary expression ")") primapp-bin-exp)
@@ -197,8 +206,11 @@
       (primapp-un-exp (prim-unaria exp) ((eval-unaPrim prim-unaria) (eval-expression exp env)))
 
       ;;Evaluar listas
+      (empty-list-exp () '())
       (list-exp (exps) (eval-list exps env))
-
+      (primapp-list-exp (prim exp) ((eval-prim-list prim) (eval-expression exp env)))
+      (primbin-list-exp (prim exps) ((eval-bin-prim-list prim) (list-exps exps env)))
+  
       ;;Evaluar booleanos
       (bool-exp (exp) (eval-boolean exp env))
 
@@ -239,6 +251,20 @@
       (list-lit (exps) (list-exps exps env))
       (else (eopl:error "ERROR eval-list")))))
 
+;;Evaluar primitivas sobre listas
+(define eval-prim-list
+  (lambda (prim)
+    (cases prim-list prim
+      (prim-list-empty? () (lambda (lst) (if (list? lst) (eqv? empty lst) (eopl:error 'prim-list-empty? "Error, esta operacion solo permite listas"))))
+      (prim-list-car () (lambda (lst) (if (list? lst) (car lst) (eopl:error 'prim-list-car "Error, esta operacion solo permite listas"))))
+      (prim-list-cdr () (lambda (lst) (if (list? lst) (cdr lst) (eopl:error 'prim-list-cdr "Error, esta operacion solo permite listas"))))
+      (else (eopl:error "ERROR eval-prim-list")))))
+
+(define eval-bin-prim-list
+  (lambda (prim)
+    (cases prim-bin-list prim
+      (prim-list-append () (lambda (lst) (if ((list-of list?) lst) (apply append lst) (eopl:error 'prim-list-append "Error, esta operacion solo permite listas"))))
+      (else (eopl:error "ERROR eval-bin-prim-list")))))
 ;***************************************************************************************** Booleanos
 
 ;;Evaluar expresion booleana
@@ -281,7 +307,7 @@
       (primitiva-multi () (lambda (val1 val2) (if (and (number? val1) (number? val2)) (* val1 val2) (eopl:error 'primitiva-multi "Error, esta operacion solo permite numeros"))))
       (primitiva-res () (lambda (val1 val2) (if (and (number? val1) (number? val2)) (remainder val1 val2) (eopl:error 'primitiva-res "Error, esta operacion solo permite numeros"))))
       (primitiva-concat () concat)
-      (else (eopl:error "ERROR")))))
+      (else (eopl:error "ERROR eval-binPrim")))))
 
 ;obtener la operacion de  primitiva unaria
 (define eval-unaPrim 
@@ -513,6 +539,7 @@
 ;      evaluar @decorate ("estudiante de UNIVALLE") finEval
 ;    }
 ;}
+(scan&parse "const ( @list=[2;3;4;5;6;7], @emptyList=[]) in { empty?(@list) }")
 (scan&parse "const (
   @radio=2.5,
   @areaCirculo= func (@r) { (@PI*(@r * @r)) }
