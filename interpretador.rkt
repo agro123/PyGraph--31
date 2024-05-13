@@ -86,7 +86,6 @@
     (expression ("set " identifier "->" expression) set-exp)
     (expression ("while " expr-bool "do {" expression "}") while-do-exp)
     (expression ("for " identifier "=" expression " to " expression "do {" expression "}") for-to-exp)
-
     (expression ("print (" expression ")") print-exp)
 
     ;;Listas
@@ -271,25 +270,18 @@
                      (eopl:error 'eval-expression
                                  "Attempt to apply non-procedure ~s"))))
       (print-exp (exp)(begin (eopl:printf "~v"  (eval-expression exp env)) '-log))
-      (while-do-exp (expbool exp) (while-do expbool exp env))
-      (for-to-exp (id exp1 exp2 exp) exp)
-      ;(expression ("while" expr-bool "do" expression "done") while-do-exp)
-      ;(expression ("for" identifier "=" expression "to" expression "do" expression "done") for-to-exp)
+      (while-do-exp (expbool exp) (begin
+                                    (while-do expbool exp env)
+                                    1))
+      (for-to-exp (id fromValue toValue body) (let ((fv (eval-expression fromValue env)) (tv (eval-expression toValue env)))
+                                                (if (and (number? fv)(number? tv))
+                                                    (begin (for-to id
+                                                              fv
+                                                              tv
+                                                              body
+                                                              (extend-env-var (list id) (list fv) env)) 1)
+                                                (eopl:error "ERROR el valor inicial y final deben ser numeros"))))
 
-#|
-var (
-  @valor=0
-) in {
-  while <=(@valor, 5)?
-  do {
-    begin {
-      set @valor -> (@valor+1);
-      print (("valor:" concat @valor))
-    }
-  }
-}
- |# 
-                     
       (else (eopl:error "ERROR eval-expression"))
       )))
 ;***************************************************************************************** Listas
@@ -580,8 +572,23 @@ var (
 (define while-do
   (lambda (cond body env)
     (when (eval-boolean cond env)
-      (eval-expression body env)
+      (eval-expression body env);Evaluar expresion
       (while-do cond body env))))
+
+;for
+(define for-to
+  (lambda (id initialValue finalValue body env) ;La operacion puede ser suma o resta
+    (let ((op (select-op initialValue finalValue)))
+      (unless (equal? (find-var env id) finalValue) ;Si el valor inicial no es igual al final
+        (eval-expression body env);;evaluar expresion
+        (eval-expression (set-exp id (number-lit (op initialValue 1))) env) ;;Aumentar valor en 1
+        (for-to id (op initialValue 1) finalValue body env)))))
+;; si el numero inicial del for es menor al final se hara una suma por el contrario una resta
+(define select-op
+  (lambda (i f)
+    (if (< i f)
+        +
+        -)))
 
 ;****************************************************************************************  Funciones Auxiliares
 ; busca la posición de un símbolo en la lista de símbolos de un ambiente
@@ -623,13 +630,6 @@ var (
 
 
 ;------------------------------------------------Solucion taller------------------------------------------
-;A)
-;const (
-;  @radio=2.5,
-;  @areaCirculo= func (@r) { (@PI*(@r * @r)) }
-;) in { 
-;    resultOf @areaCirculo(@radio)
-;}
 (scan&parse "const ( @list=[2;3;4;5;6;7], @emptyList=[]) in { empty?(@list) }")
 (scan&parse "const ( @vector=vector[2;3;4;5;6;7], @vector2=make-vector(10), @list=[1;2;3;4;5]) in { vector?(@vector2) }")
 (scan&parse "const (@registro={@name: \"Cristian\"; @age: 10}) in { ref-record(@registro, @name) }")
@@ -644,5 +644,26 @@ var (
 ) in {  
     resultOf @factorial(10)
 }")
-
+(scan&parse "var (
+  @valor=0
+) in {
+  while <=(@valor, 5)?
+  do {
+    begin {
+      set @valor -> (@valor+1);
+      print ((\"valor:\" concat @valor))
+    }
+  }
+}")
+(scan&parse "var (
+  @list=[1;2;3;4;5;6]
+) in {
+  for @index=0 to 5
+  do {
+    begin {
+      print ((\"valor:\" concat car(@list)));
+      set @list -> cdr(@list)
+    }
+  }
+}")
 (interpreter)
