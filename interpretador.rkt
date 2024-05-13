@@ -84,6 +84,10 @@
     (expression ("func (" (separated-list identifier ",") ")" "{" expression "}") proc-exp)
     (expression ("resultOf " expression "(" (separated-list expression ",") ")") app-exp)
     (expression ("set " identifier "->" expression) set-exp)
+    (expression ("while " expr-bool "do {" expression "}") while-do-exp)
+    (expression ("for " identifier "=" expression " to " expression "do {" expression "}") for-to-exp)
+
+    (expression ("print (" expression ")") print-exp)
 
     ;;Listas
     (expression (expr-list) list-exp)
@@ -266,6 +270,25 @@
                      (aplicar-proc proc args)
                      (eopl:error 'eval-expression
                                  "Attempt to apply non-procedure ~s"))))
+      (print-exp (exp)(begin (eopl:printf "~v"  (eval-expression exp env)) '-log))
+      (while-do-exp (expbool exp) (while-do expbool exp env))
+      (for-to-exp (id exp1 exp2 exp) exp)
+      ;(expression ("while" expr-bool "do" expression "done") while-do-exp)
+      ;(expression ("for" identifier "=" expression "to" expression "do" expression "done") for-to-exp)
+
+#|
+var (
+  @valor=0
+) in {
+  while <=(@valor, 5)?
+  do {
+    begin {
+      set @valor -> (@valor+1);
+      print (("valor:" concat @valor))
+    }
+  }
+}
+ |# 
                      
       (else (eopl:error "ERROR eval-expression"))
       )))
@@ -349,7 +372,6 @@
                                           (find-record-value rc key)
                                           (eopl:error 'prim-record-ref "Error,  parametros no validos"))))
       (else  (eopl:error "ERROR eval-record")))))
-  ;const (@registro={@name: "Cristian"; @age: 10}) in { ref-record(@registro, @name) }
 
 ;;Setear un nuevo valor en registro
 (define set-record-value
@@ -553,7 +575,13 @@
     (cases procVal proc
       (cerradura (ids body env)
                (eval-expression body (extend-env ids args env))))))
-
+;*******************************************************************************************iteracion
+;while-do
+(define while-do
+  (lambda (cond body env)
+    (when (eval-boolean cond env)
+      (eval-expression body env)
+      (while-do cond body env))))
 
 ;****************************************************************************************  Funciones Auxiliares
 ; busca la posición de un símbolo en la lista de símbolos de un ambiente
@@ -601,52 +629,6 @@
 ;  @areaCirculo= func (@r) { (@PI*(@r * @r)) }
 ;) in { 
 ;    resultOf @areaCirculo(@radio)
-;}
-
-;B)
-;declararRec ( 
-;             @factorial= (@n) => Si @n entonces (@n * evaluar @factorial((@n ~ 1)) finEval) sino 1 finSI;
-;) {  
-;    (("Factorial de 10 es " concat evaluar @factorial(10) finEval) concat ("y Factorial de 5 es " concat evaluar @factorial(5) finEval))
-;}
-
-;C)
-;declararRec ( 
-;        @sumar=(@n,@m) => Si @m entonces evaluar @sumar(add1(@n),sub1(@m)) finEval sino @n finSI;
-;) {  
-;    evaluar @sumar(4,5) finEval
-;}
-
-;D)
-;declararRec ( 
-;        @restar= (@a,@b) => Si (@b == 0) entonces @a sino evaluar @restar(sub1(@a),sub1(@b)) finEval finSI;
-;        @multiplicar= (@a,@b) => Si (@b == 0) entonces 0 sino  (@a + evaluar @multiplicar(@a,sub1(@b)) finEval) finSI;
-;) {  
-;    (("Restar " concat evaluar @restar(10, 3) finEval) concat ("Multiplicar " concat evaluar @multiplicar(10, 3) finEval))
-;}
-
-;E)
-;declarar (
-;  @integrantes = procedimiento () haga "Cristian Medina" finProc;
-;  @saludar = procedimiento (@proc) haga procedimiento () haga ("Hola " concat evaluar @proc() finEval ) finProc finProc
-;) { 
-;    declarar (
-;         @decorate =  evaluar @saludar (@integrantes) finEval  
-;    ) { 
-;      evaluar @decorate () finEval
-;    }
-;}
-
-;F)
-;declarar (
-;  @integrantes = procedimiento (@msf) haga ("Cristian Medina " concat @msf) finProc;
-;  @saludar = procedimiento (@proc) haga procedimiento (@adc) haga ("Hola " concat evaluar @proc(@adc) finEval) finProc finProc
-;) { 
-;    declarar (
-;         @decorate =  evaluar @saludar (@integrantes) finEval  
-;    ) { 
-;      evaluar @decorate ("estudiante de UNIVALLE") finEval
-;    }
 ;}
 (scan&parse "const ( @list=[2;3;4;5;6;7], @emptyList=[]) in { empty?(@list) }")
 (scan&parse "const ( @vector=vector[2;3;4;5;6;7], @vector2=make-vector(10), @list=[1;2;3;4;5]) in { vector?(@vector2) }")
