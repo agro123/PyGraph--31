@@ -97,6 +97,13 @@
     (expression (prim-vector "(" (separated-list expression ",") ")") prim-vector-exp)
     (expr-vector ("vector[" (separated-list expression ";") "]") vector-lit)
 
+    ;;Registros
+    (expression (expr-record) record-exp)
+    (expr-record ("record?(" expression ")") prim-record-vector?)
+    (expr-record ("ref-record(" expression "," identifier ")") prim-record-ref)
+    (expr-record ("set-record(" expression "," identifier "," expression ")") prim-record-set)
+    (expr-record ("{" identifier ":" expression (arbno ";" identifier ":" expression)  "}") record-lit)
+
     ;;Booleanos
     (expression (expr-bool) bool-exp)
     (expr-bool (oper-bin-bool "(" expression "," expression ")?") pred-bin-exp)
@@ -226,6 +233,9 @@
       ;;Evaluar vectores
       (vector-exp (exps) (eval-vector exps env))
       (prim-vector-exp (prim exps) (eval-prim-vector prim exps env))
+
+      ;;Evaluar registros
+      (record-exp (exps) (eval-record exps env))
   
       ;;Evaluar booleanos
       (bool-exp (exp) (eval-boolean exp env))
@@ -305,7 +315,7 @@
                                 (pos (eval-expression (car (cdr exps)) env)) ; pos
                                 (val (eval-expression (car (cddr exps)) env))) ; valor
                                 (if (and (vector? vec) (number? pos))
-                                    (vector-set! vec pos val)
+                                    (begin (vector-set! vec pos val) 1)
                                     (eopl:error 'prim-vector-set "Error,  parametros no validos"))))
       (prim-vector-ref () (let ((vec (eval-expression (car exps) env)); vector
                                 (pos (eval-expression (car (cdr exps)) env))) ; pos
@@ -314,7 +324,55 @@
                                     (eopl:error 'prim-vector-ref "Error,  parametros no validos"))))
       (else (eopl:error "ERROR prim-vector-vector?")))))
 
+;***************************************************************************************** Registros
 
+;Datatype registro
+(define-datatype record record?
+  (record-value (keys (list-of symbol?))
+                (values vector?)))
+
+;;Evaluar registros
+(define eval-record
+  (lambda (exps env)
+    (cases expr-record exps
+      (record-lit (fkey fvalue rkeys rvalues) (let ((keys (append (list fkey) rkeys));Unir la primera key con el resto de keys
+                                                    (values (list-exps (append (list fvalue) rvalues) env)));evaluar exps
+                                                   (record-value keys (list->vector values) )))
+      (prim-record-vector? (exp) (record? (eval-expression exp env)))
+      (prim-record-set (rec key newVal) (let ((rc (eval-expression rec env)); registro
+                                              (val (eval-expression newVal env))) ; nuevo valor
+                                             (if (and (record? rc) (symbol? key))
+                                                 (set-record-value rc key val)
+                                                 (eopl:error 'prim-record-set "Error,  parametros no validos"))))
+      (prim-record-ref (rec key) (let ((rc (eval-expression rec env))); registro
+                                      (if (and (record? rc) (symbol? key))
+                                          (find-record-value rc key)
+                                          (eopl:error 'prim-record-ref "Error,  parametros no validos"))))
+      (else  (eopl:error "ERROR eval-record")))))
+  ;const (@registro={@name: "Cristian"; @age: 10}) in { ref-record(@registro, @name) }
+
+;;Setear un nuevo valor en registro
+(define set-record-value
+  (lambda (rec key newVal)
+    (cases record rec
+      (record-value (keys values) (let* ((pos (list-find-position key keys)))
+                                    (if (number? pos)
+                                        (begin
+                                              (vector-set! values pos newVal)
+                                              1)
+                                        (eopl:error "La key ~s no esta en registro" key))))
+      (else (eopl:error "ERROR set-record-value")))))
+;;Buscar la posicion de la key en el registro
+(define find-record-value
+  (lambda (rec key)
+    (cases record rec
+      (record-value (keys values) (let ((pos (list-find-position key keys)))
+                                    (if (number? pos)
+                                        (vector-ref values pos)
+                                        (eopl:error "La key ~s no esta en registro" key))))
+      (else (eopl:error "ERROR find-record-value")))))
+
+    
 ;***************************************************************************************** Booleanos
 
 ;;Evaluar expresion booleana
@@ -592,6 +650,7 @@
 ;}
 (scan&parse "const ( @list=[2;3;4;5;6;7], @emptyList=[]) in { empty?(@list) }")
 (scan&parse "const ( @vector=vector[2;3;4;5;6;7], @vector2=make-vector(10), @list=[1;2;3;4;5]) in { vector?(@vector2) }")
+(scan&parse "const (@registro={@name: \"Cristian\"; @age: 10}) in { ref-record(@registro, @name) }")
 (scan&parse "const (
   @radio=2.5,
   @areaCirculo= func (@r) { (@PI*(@r * @r)) }
