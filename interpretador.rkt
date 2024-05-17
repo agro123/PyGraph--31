@@ -80,11 +80,11 @@
     
     ;;Estructura de control
     (expression ("begin " "{" expression (arbno ";" expression) "}") begin-exp)
-    (expression ("if (" expr-bool ")" " then {" expression "} else {" expression "}") if-exp)
+    (expression ("if (" expr-bool ")" "then {" expression "} else {" expression "}") if-exp)
     (expression ("func (" (separated-list identifier ",") ")" "{" expression "}") proc-exp)
     (expression ("resultOf " expression "(" (separated-list expression ",") ")") app-exp)
     (expression ("set " identifier "->" expression) set-exp)
-    (expression ("while " expr-bool "do {" expression "}") while-do-exp)
+    (expression ("while (" expr-bool ")" "do {" expression "}") while-do-exp)
     (expression ("for " identifier "=" expression " to " expression "do {" expression "}") for-to-exp)
     (expression ("print (" expression ")") print-exp)
 
@@ -150,7 +150,7 @@
     (prim-binary ("%") primitiva-res)
     (prim-binary (" concat ") primitiva-concat)
     
-    (prim-unary ("longitud") primitiva-longitud)
+    (prim-unary ("length") primitiva-longitud)
     (prim-unary ("add1") primitiva-add1)
     (prim-unary ("sub1") primitiva-sub1)
     ))
@@ -187,8 +187,8 @@
 (define init-env
   (lambda ()
     (extend-env
-     '(@a @b @c @d @e @PI)
-     '(1 2 3 "hola" "FLP" 3.14159265359)
+     '(@PI)
+     '(3.14159265359)
      (empty-enviroment))))
 
 ;;Evaluar programa
@@ -513,12 +513,12 @@
       (extended-env (ids exps env)
                            (let ((pos (list-find-position id ids)))
                              (if (number? pos)
-                                 (eopl:error 'find-var "Error, una constante no puede ser modificada ~s" id);; si la variable a modificar es una constante retorna un error
+                                 (eopl:error 'find-var "Error, La constante ~s no puede ser modificada " id);; si la variable a modificar es una constante retorna un error
                                  (find-var-to-set env id))))
       (rec-env (procNames procParams procBodies old-env)
                              (let ((pos (list-find-position id procNames)))
                                          (if (number? pos)
-                                             (eopl:error 'find-var "Error, un procemiento recursivo no puede ser modificado ~s" id);; si la variable a modificar es un procedimiento recursivo retorna un error
+                                             (eopl:error 'find-var "Error, El procemiento recursivo ~s no puede ser modificado" id);; si la variable a modificar es un procedimiento recursivo retorna un error
                                              (find-var old-env id))))
       (var-env (ids exps env)
                            (let ((pos (list-find-position id ids)))
@@ -577,18 +577,29 @@
 
 ;for
 (define for-to
-  (lambda (id initialValue finalValue body env) ;La operacion puede ser suma o resta
-    (let ((op (select-op initialValue finalValue)))
-      (unless (equal? (find-var env id) finalValue) ;Si el valor inicial no es igual al final
+  (lambda (id initialValue finalValue body env)
+    (let ((op (select-op initialValue finalValue))  ;La operacion puede ser suma o resta, si es valor final es mayor al inicial, suma; si no, resta.
+          (pred (select-pred initialValue finalValue)))
+      (for-to-aux id initialValue finalValue body env op pred))))
+(define for-to-aux
+  (lambda (id initialValue finalValue body env op pred)
+      (when (pred (find-var env id) finalValue) ;We hace una busqueda en el ambiente porque el valor del index puede ser cambiado en ejecucion
         (eval-expression body env);;evaluar expresion
-        (eval-expression (set-exp id (number-lit (op initialValue 1))) env) ;;Aumentar valor en 1
-        (for-to id (op initialValue 1) finalValue body env)))))
-;; si el numero inicial del for es menor al final se hara una suma por el contrario una resta
+        (eval-expression (set-exp id (number-lit (op initialValue 1))) env) ;;Aumentar el indice en 1 dentro del ambiente 
+        (for-to-aux id (op initialValue 1) finalValue body env op pred))))
+
+;; Si el numero inicial es menor al final se hara una suma al indice por el contrario una resta
 (define select-op
   (lambda (i f)
     (if (< i f)
         +
         -)))
+;; Si el numero inicial es menor al final se evaluara hasta que sea mayor que el final de lo contrario hasta que sea menor
+(define select-pred
+  (lambda (i f)
+    (if (<= i f)
+        <=
+        >=)))
 
 ;****************************************************************************************  Funciones Auxiliares
 ; busca la posición de un símbolo en la lista de símbolos de un ambiente
@@ -629,7 +640,6 @@
         (cons (eval-expression (car exps) env) (list-exps (cdr exps) env)))))
 
 
-;------------------------------------------------Solucion taller------------------------------------------
 (scan&parse "const ( @list=[2;3;4;5;6;7], @emptyList=[]) in { empty?(@list) }")
 (scan&parse "const ( @vector=vector[2;3;4;5;6;7], @vector2=make-vector(10), @list=[1;2;3;4;5]) in { vector?(@vector2) }")
 (scan&parse "const (@registro={@name: \"Cristian\"; @age: 10}) in { ref-record(@registro, @name) }")
@@ -640,14 +650,14 @@
     resultOf @areaCirculo(@radio)
 }")
 (scan&parse "rec ( 
-  @factorial=(@n)=> { if (==(@n,1)?) then {1} else {(@n * resultOf @factorial(sub1(@n)))} }
+  @factorial=(@n)=> { if (==(@n,1)? ) then {1} else {(@n * resultOf @factorial(sub1(@n)))} }
 ) in {  
     resultOf @factorial(10)
 }")
 (scan&parse "var (
   @valor=0
 ) in {
-  while <=(@valor, 5)?
+  while (<=(@valor, 5)?)
   do {
     begin {
       set @valor -> (@valor+1);
@@ -666,4 +676,5 @@
     }
   }
 }")
+
 (interpreter)

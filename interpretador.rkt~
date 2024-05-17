@@ -80,10 +80,32 @@
     
     ;;Estructura de control
     (expression ("begin " "{" expression (arbno ";" expression) "}") begin-exp)
-    (expression ("if (" expr-bool ")" " then {" expression "} else {" expression "}") if-exp)
+    (expression ("if (" expr-bool ")" "then {" expression "} else {" expression "}") if-exp)
     (expression ("func (" (separated-list identifier ",") ")" "{" expression "}") proc-exp)
     (expression ("resultOf " expression "(" (separated-list expression ",") ")") app-exp)
     (expression ("set " identifier "->" expression) set-exp)
+    (expression ("while " expr-bool "do {" expression "}") while-do-exp)
+    (expression ("for " identifier "=" expression " to " expression "do {" expression "}") for-to-exp)
+    (expression ("print (" expression ")") print-exp)
+
+    ;;Listas
+    (expression (expr-list) list-exp)
+    (expr-list ("[" (separated-list expression ";") "]") list-lit)
+    (expr-list ("empty") empty-list)
+    (expression (prim-list "(" expression ")") primapp-list-exp)
+    (expression (prim-bin-list "(" (separated-list expression ",") ")") primbin-list-exp)
+    
+    ;;vectores
+    (expression (expr-vector) vector-exp)
+    (expression (prim-vector "(" (separated-list expression ",") ")") prim-vector-exp)
+    (expr-vector ("vector[" (separated-list expression ";") "]") vector-lit)
+
+    ;;Registros
+    (expression (expr-record) record-exp)
+    (expr-record ("record?(" expression ")") prim-record-vector?)
+    (expr-record ("ref-record(" expression "," identifier ")") prim-record-ref)
+    (expr-record ("set-record(" expression "," identifier "," expression ")") prim-record-set)
+    (expr-record ("{" identifier ":" expression (arbno ";" identifier ":" expression)  "}") record-lit)
 
     ;;Booleanos
     (expression (expr-bool) bool-exp)
@@ -103,6 +125,20 @@
     
     (oper-un-bool ("not") pred-not)
 
+    ;;primitivas listas
+    (prim-list ("empty?") prim-list-empty?)
+    (prim-list ("car") prim-list-car)
+    (prim-list ("cdr") prim-list-cdr)
+    (prim-list ("list?") prim-list-list?)
+    (prim-bin-list ("append") prim-list-append)
+    (prim-bin-list ("make-list") prim-list-make)
+ 
+    ;;primitivas vectores
+    (prim-vector ("make-vector") prim-vector-make)
+    (prim-vector ("ref-vector") prim-vector-ref)
+    (prim-vector ("set-vector") prim-vector-set)
+    (prim-vector ("vector?") prim-vector-vector?)
+
     ;;Primitivas
     (expression ("(" expression prim-binary expression ")") primapp-bin-exp)
     (expression (prim-unary "(" expression ")") primapp-un-exp)
@@ -114,7 +150,7 @@
     (prim-binary ("%") primitiva-res)
     (prim-binary (" concat ") primitiva-concat)
     
-    (prim-unary ("longitud") primitiva-longitud)
+    (prim-unary ("length") primitiva-longitud)
     (prim-unary ("add1") primitiva-add1)
     (prim-unary ("sub1") primitiva-sub1)
     ))
@@ -151,8 +187,8 @@
 (define init-env
   (lambda ()
     (extend-env
-     '(@a @b @c @d @e @PI)
-     '(1 2 3 "hola" "FLP" 3.14159265359)
+     '(@PI)
+     '(3.14159265359)
      (empty-enviroment))))
 
 ;;Evaluar programa
@@ -192,8 +228,22 @@
       (primapp-bin-exp (exp1 prim-binaria exp2) ((eval-binPrim prim-binaria) (eval-expression exp1 env) (eval-expression exp2 env)))
       (primapp-un-exp (prim-unaria exp) ((eval-unaPrim prim-unaria) (eval-expression exp env)))
 
-      ;;Evaluar estructuras de control
+      ;;Evaluar listas
+      (list-exp (exps) (eval-list exps env))
+      (primapp-list-exp (prim exp) ((eval-prim-list prim) (eval-expression exp env)))
+      (primbin-list-exp (prim exps) ((eval-bin-prim-list prim) (list-exps exps env)))
+
+      ;;Evaluar vectores
+      (vector-exp (exps) (eval-vector exps env))
+      (prim-vector-exp (prim exps) (eval-prim-vector prim exps env))
+
+      ;;Evaluar registros
+      (record-exp (exps) (eval-record exps env))
+  
+      ;;Evaluar booleanos
       (bool-exp (exp) (eval-boolean exp env))
+
+      ;;Evaluar estructuras de control
       (set-exp (id new-exp)
                (begin
                   (setref!
@@ -219,10 +269,125 @@
                      (aplicar-proc proc args)
                      (eopl:error 'eval-expression
                                  "Attempt to apply non-procedure ~s"))))
-                     
+      (print-exp (exp)(begin (eopl:printf "~v"  (eval-expression exp env)) '-log))
+      (while-do-exp (expbool exp) (begin
+                                    (while-do expbool exp env)
+                                    1))
+      (for-to-exp (id fromValue toValue body) (let ((fv (eval-expression fromValue env)) (tv (eval-expression toValue env)))
+                                                (if (and (number? fv)(number? tv))
+                                                    (begin (for-to id
+                                                              fv
+                                                              tv
+                                                              body
+                                                              (extend-env-var (list id) (list fv) env)) 1)
+                                                (eopl:error "ERROR el valor inicial y final deben ser numeros"))))
+
       (else (eopl:error "ERROR eval-expression"))
       )))
-;***************************************************************************************** Predicados
+;***************************************************************************************** Listas
+;;Evaluar lista
+(define eval-list
+  (lambda (lst env)
+    (cases expr-list lst
+      (empty-list () '())
+      (list-lit (exps) (list-exps exps env))
+      (else (eopl:error "ERROR eval-list")))))
+;;Evaluar primitivas sobre listas
+(define eval-prim-list
+  (lambda (prim)
+    (cases prim-list prim
+      (prim-list-empty? () (lambda (lst) (if (list? lst) (eqv? empty lst) (eopl:error 'prim-list-empty? "Error, esta operacion solo permite listas"))))
+      (prim-list-car () (lambda (lst) (if (list? lst) (car lst) (eopl:error 'prim-list-car "Error, esta operacion solo permite listas"))))
+      (prim-list-cdr () (lambda (lst) (if (list? lst) (cdr lst) (eopl:error 'prim-list-cdr "Error, esta operacion solo permite listas"))))
+      (prim-list-list? () (lambda (lst) (list? lst)))
+      (else (eopl:error "ERROR eval-prim-list")))))
+
+(define eval-bin-prim-list
+  (lambda (prim)
+    (cases prim-bin-list prim
+      (prim-list-append () (lambda (lst) (if ((list-of list?) lst) (apply append lst) (eopl:error 'prim-list-append "Error, esta operacion solo permite listas"))))
+      (prim-list-make () (lambda (values) (apply list values)));Crea una lista con los valores dados
+      (else (eopl:error "ERROR eval-bin-prim-list")))))
+
+;***************************************************************************************** Vectores
+;;Evaluar vector
+(define eval-vector
+  (lambda (vec env)
+    (cases expr-vector vec
+      (vector-lit (exps) (apply vector (list-exps exps env)))
+      (else (eopl:error "ERROR eval-vector")))))
+
+;;Evaluar primitivas sobre Vectores *Recibe una lista de expresiones pero solo evalua las expresiones necesarias para cada primitiva
+(define eval-prim-vector
+  (lambda (prim exps env)
+    (cases prim-vector prim
+      (prim-vector-vector? () (vector? (eval-expression (car exps) env)))
+      (prim-vector-make () (let ((np (eval-expression (car exps) env))); numero de posiciones
+                                (if (and (number? np) (> np 0))
+                                    (make-vector np)
+                                    (eopl:error 'prim-vector-make "Error, parametros no validos"))))
+      (prim-vector-set () (let ((vec (eval-expression (car exps) env)); vector
+                                (pos (eval-expression (car (cdr exps)) env)) ; pos
+                                (val (eval-expression (car (cddr exps)) env))) ; valor
+                                (if (and (vector? vec) (number? pos))
+                                    (begin (vector-set! vec pos val) 1)
+                                    (eopl:error 'prim-vector-set "Error,  parametros no validos"))))
+      (prim-vector-ref () (let ((vec (eval-expression (car exps) env)); vector
+                                (pos (eval-expression (car (cdr exps)) env))) ; pos
+                                (if (and (vector? vec) (number? pos))
+                                    (vector-ref vec pos)
+                                    (eopl:error 'prim-vector-ref "Error,  parametros no validos"))))
+      (else (eopl:error "ERROR prim-vector-vector?")))))
+
+;***************************************************************************************** Registros
+
+;Datatype registro
+(define-datatype record record?
+  (record-value (keys (list-of symbol?))
+                (values vector?)))
+
+;;Evaluar registros
+(define eval-record
+  (lambda (exps env)
+    (cases expr-record exps
+      (record-lit (fkey fvalue rkeys rvalues) (let ((keys (append (list fkey) rkeys));Unir la primera key con el resto de keys
+                                                    (values (list-exps (append (list fvalue) rvalues) env)));evaluar exps
+                                                   (record-value keys (list->vector values) )))
+      (prim-record-vector? (exp) (record? (eval-expression exp env)))
+      (prim-record-set (rec key newVal) (let ((rc (eval-expression rec env)); registro
+                                              (val (eval-expression newVal env))) ; nuevo valor
+                                             (if (and (record? rc) (symbol? key))
+                                                 (set-record-value rc key val)
+                                                 (eopl:error 'prim-record-set "Error,  parametros no validos"))))
+      (prim-record-ref (rec key) (let ((rc (eval-expression rec env))); registro
+                                      (if (and (record? rc) (symbol? key))
+                                          (find-record-value rc key)
+                                          (eopl:error 'prim-record-ref "Error,  parametros no validos"))))
+      (else  (eopl:error "ERROR eval-record")))))
+
+;;Setear un nuevo valor en registro
+(define set-record-value
+  (lambda (rec key newVal)
+    (cases record rec
+      (record-value (keys values) (let* ((pos (list-find-position key keys)))
+                                    (if (number? pos)
+                                        (begin
+                                              (vector-set! values pos newVal)
+                                              1)
+                                        (eopl:error "La key ~s no esta en registro" key))))
+      (else (eopl:error "ERROR set-record-value")))))
+;;Buscar la posicion de la key en el registro
+(define find-record-value
+  (lambda (rec key)
+    (cases record rec
+      (record-value (keys values) (let ((pos (list-find-position key keys)))
+                                    (if (number? pos)
+                                        (vector-ref values pos)
+                                        (eopl:error "La key ~s no esta en registro" key))))
+      (else (eopl:error "ERROR find-record-value")))))
+
+    
+;***************************************************************************************** Booleanos
 
 ;;Evaluar expresion booleana
 (define eval-boolean
@@ -264,7 +429,7 @@
       (primitiva-multi () (lambda (val1 val2) (if (and (number? val1) (number? val2)) (* val1 val2) (eopl:error 'primitiva-multi "Error, esta operacion solo permite numeros"))))
       (primitiva-res () (lambda (val1 val2) (if (and (number? val1) (number? val2)) (remainder val1 val2) (eopl:error 'primitiva-res "Error, esta operacion solo permite numeros"))))
       (primitiva-concat () concat)
-      (else (eopl:error "ERROR")))))
+      (else (eopl:error "ERROR eval-binPrim")))))
 
 ;obtener la operacion de  primitiva unaria
 (define eval-unaPrim 
@@ -348,12 +513,12 @@
       (extended-env (ids exps env)
                            (let ((pos (list-find-position id ids)))
                              (if (number? pos)
-                                 (eopl:error 'find-var "Error, una constante no puede ser modificada ~s" id);; si la variable a modificar es una constante retorna un error
+                                 (eopl:error 'find-var "Error, La constante ~s no puede ser modificada " id);; si la variable a modificar es una constante retorna un error
                                  (find-var-to-set env id))))
       (rec-env (procNames procParams procBodies old-env)
                              (let ((pos (list-find-position id procNames)))
                                          (if (number? pos)
-                                             (eopl:error 'find-var "Error, un procemiento recursivo no puede ser modificado ~s" id);; si la variable a modificar es un procedimiento recursivo retorna un error
+                                             (eopl:error 'find-var "Error, El procemiento recursivo ~s no puede ser modificado" id);; si la variable a modificar es un procedimiento recursivo retorna un error
                                              (find-var old-env id))))
       (var-env (ids exps env)
                            (let ((pos (list-find-position id ids)))
@@ -371,12 +536,13 @@
   (lambda (ref)
     (primitive-deref ref)))
 
+;;obtener el valor de la referencia
 (define primitive-deref
   (lambda (ref)
     (cases reference ref
       (a-ref (pos vec)
              (vector-ref vec pos)))))
-
+;;cambiar el valor de la referencia
 (define setref!
   (lambda (ref val)
     (primitive-setref! ref val)))
@@ -401,7 +567,28 @@
     (cases procVal proc
       (cerradura (ids body env)
                (eval-expression body (extend-env ids args env))))))
+;*******************************************************************************************iteracion
+;while-do
+(define while-do
+  (lambda (cond body env)
+    (when (eval-boolean cond env)
+      (eval-expression body env);Evaluar expresion
+      (while-do cond body env))))
 
+;for
+(define for-to
+  (lambda (id initialValue finalValue body env)
+    (let ((op (select-op initialValue finalValue)))  ;La operacion puede ser suma o resta, si es valor final es mayor al inicial, suma; si no, resta.
+      (unless (equal? (find-var env id) finalValue) ;Si el valor inicial no es igual al final se ejecutara la expresion
+        (eval-expression body env);;evaluar expresion
+        (eval-expression (set-exp id (number-lit (op initialValue 1))) env) ;;Aumentar valor en 1
+        (for-to id (op initialValue 1) finalValue body env)))))
+;; si el numero inicial del for es menor al final se hara una suma por el contrario una resta
+(define select-op
+  (lambda (i f)
+    (if (< i f)
+        +
+        -)))
 
 ;****************************************************************************************  Funciones Auxiliares
 ; busca la posición de un símbolo en la lista de símbolos de un ambiente
@@ -442,60 +629,9 @@
         (cons (eval-expression (car exps) env) (list-exps (cdr exps) env)))))
 
 
-;------------------------------------------------Solucion taller------------------------------------------
-;A)
-;const (
-;  @radio=2.5,
-;  @areaCirculo= func (@r) { (@PI*(@r * @r)) }
-;) in { 
-;    resultOf @areaCirculo(@radio)
-;}
-
-;B)
-;declararRec ( 
-;             @factorial= (@n) => Si @n entonces (@n * evaluar @factorial((@n ~ 1)) finEval) sino 1 finSI;
-;) {  
-;    (("Factorial de 10 es " concat evaluar @factorial(10) finEval) concat ("y Factorial de 5 es " concat evaluar @factorial(5) finEval))
-;}
-
-;C)
-;declararRec ( 
-;        @sumar=(@n,@m) => Si @m entonces evaluar @sumar(add1(@n),sub1(@m)) finEval sino @n finSI;
-;) {  
-;    evaluar @sumar(4,5) finEval
-;}
-
-;D)
-;declararRec ( 
-;        @restar= (@a,@b) => Si (@b == 0) entonces @a sino evaluar @restar(sub1(@a),sub1(@b)) finEval finSI;
-;        @multiplicar= (@a,@b) => Si (@b == 0) entonces 0 sino  (@a + evaluar @multiplicar(@a,sub1(@b)) finEval) finSI;
-;) {  
-;    (("Restar " concat evaluar @restar(10, 3) finEval) concat ("Multiplicar " concat evaluar @multiplicar(10, 3) finEval))
-;}
-
-;E)
-;declarar (
-;  @integrantes = procedimiento () haga "Cristian Medina" finProc;
-;  @saludar = procedimiento (@proc) haga procedimiento () haga ("Hola " concat evaluar @proc() finEval ) finProc finProc
-;) { 
-;    declarar (
-;         @decorate =  evaluar @saludar (@integrantes) finEval  
-;    ) { 
-;      evaluar @decorate () finEval
-;    }
-;}
-
-;F)
-;declarar (
-;  @integrantes = procedimiento (@msf) haga ("Cristian Medina " concat @msf) finProc;
-;  @saludar = procedimiento (@proc) haga procedimiento (@adc) haga ("Hola " concat evaluar @proc(@adc) finEval) finProc finProc
-;) { 
-;    declarar (
-;         @decorate =  evaluar @saludar (@integrantes) finEval  
-;    ) { 
-;      evaluar @decorate ("estudiante de UNIVALLE") finEval
-;    }
-;}
+(scan&parse "const ( @list=[2;3;4;5;6;7], @emptyList=[]) in { empty?(@list) }")
+(scan&parse "const ( @vector=vector[2;3;4;5;6;7], @vector2=make-vector(10), @list=[1;2;3;4;5]) in { vector?(@vector2) }")
+(scan&parse "const (@registro={@name: \"Cristian\"; @age: 10}) in { ref-record(@registro, @name) }")
 (scan&parse "const (
   @radio=2.5,
   @areaCirculo= func (@r) { (@PI*(@r * @r)) }
@@ -503,9 +639,31 @@
     resultOf @areaCirculo(@radio)
 }")
 (scan&parse "rec ( 
-  @factorial=(@n)=> { if (==(@n,1)?) then {1} else {(@n * resultOf @factorial(sub1(@n)))} }
+  @factorial=(@n)=> { if (==(@n,1)? ) then {1} else {(@n * resultOf @factorial(sub1(@n)))} }
 ) in {  
     resultOf @factorial(10)
+}")
+(scan&parse "var (
+  @valor=0
+) in {
+  while <=(@valor, 5)?
+  do {
+    begin {
+      set @valor -> (@valor+1);
+      print ((\"valor:\" concat @valor))
+    }
+  }
+}")
+(scan&parse "var (
+  @list=[1;2;3;4;5;6]
+) in {
+  for @index=0 to 5
+  do {
+    begin {
+      print ((\"valor:\" concat car(@list)));
+      set @list -> cdr(@list)
+    }
+  }
 }")
 
 (interpreter)
