@@ -7,37 +7,110 @@
 ;;
 ;;  <program>      ::= <expression>
 ;;                      un-program (exp)
-;;  <expression>     ::= <number>
+;;  <expression>    ::= <number>
 ;;                      number-lit (datum)
-;;                  ::= <identifier>
+;;                  ::= '<char>'
+;;                      char-lit (datum)
+;;                  ::= "<text>"
+;;                      text-lit (datum)
+;;                  ::= "true" | "false"
+;;                      bool-lit
+
+;;                  ::= @ <identifier>
 ;;                      var-exp (id)
-;;                  ::= (<expression> <prim-binary> <expression>)
-;;                       primapp-bin-exp (exp1 prim-binaria exp2)
-;;
-;;                  ::= <prim-unary> (<expression>)
-;;                     primapp-un-exp (prim-unaria exp)
-;;                  ::= Si <expression> entonces <expression> sino <expression> finSI
-;;                      if-exp (pred-exp true-exp false-exp)
-;;                  ::= declarar (identifier = <expression>)* { <expression> }
+
+;;                  ::= const ({identifier = <expression>}*(,)) in { <expression> }
 ;;                      const-exp (ids exps cuerpo)
-;;                  ::= procedimiento (<identifier>*',') haga <expression> finProc
-;;                      procedimiento-ex (ids cuero)
-;;                  ::=  "evaluar" expression   (expression ",")*  finEval
-;;                        app-exp(exp exps)
-;;                  ::= procRecursivo  {<identifier> "(" (<identifier>(,)) ")" "=>" <expression>}* haga <expression> finRec
+;;                  ::= var ({identifier = <expression>}*) in { <expression> }
+;;                      variable-exp (ids exps cuerpo)
+;;                  ::= rec ( {<identifier> "(" (<identifier>(,)) ")" "=>" <expression>}* ) in { <expression> }
 ;;                      rec-exp (nombre ids cuerpo recursion)
 
+;;                  ::= begin { {<expression>}+(;) }
+;;                      begin-exp (exp exps)
+;;                  ::= if (<expr-bool>) then { <expression> } else { <expression> }
+;;                      if-exp (pred-exp true-exp false-exp)
+;;                  ::= func (<identifier>*',') { <expression> }
+;;                      proc-exp (params body)
+;;                  ::= resultOf <expression> ( {<expression> ","}* )
+;;                      app-exp (exp exps)
+;;                  ::= set <idenfier> -> <expression>
+;;                      set-exp (id exp)
+;;                  ::= while (<expr-bool>) do { <expression> }
+;;                      while-do-exp (pred-exp exp)
+;;                  ::= for <idenfier> = <expression> to <expression> do { <expression> }
+;;                      for-to-exp (id exp1 exp2 exp3)
+;;                  ::= print ( <expression> )
+;;                      print-exp (exp)
+
+;;                  ::= (<expression> <prim-binary> <expression>)
+;;                      primapp-bin-exp (exp1 prim-binaria exp2)
+;;                  ::= <prim-unary> (<expression>)
+;;                      primapp-un-exp (prim-unaria exp)
+
+;;                  ::= <prim-list> (<expression>)
+;;                      prim-list-exp (prim exp)
+;;                  ::= <prim-unary> (<expression> , <expression>)
+;;                      primbin-list-exp (prim exp exp)
+
+;;                  ::= <prim-vector> ( {<expression>}* ',')
+;;                      prim-vector-exp (prim exps)
+
+;;                  ::= <expr-list>
+;;                      list-exp (lst)
+;;                  ::= <expr-vector>
+;;                      record-exp (vct)
+;;                  ::= <expr-record>
+;;                      record-exp (rcd)
+;;                  ::= <expr-bool>
+;;                      bool-exp (bool)
+
+;;   <expr-list>    ::=  [ {<expression>}* ';']
+;;                      list-lit (exps)
+;;                  ::= "empty"
+;;                      empty-list ()
+
+;;    <expr-vector> ::= vector[ {<expression>}* ';']
+;;                      vector-lit (exps)
+
+;;    <expr-record> ::= { {<identifier> : <expression> (;)}+ }
+;;                      record-lit (key exp keys exps)
+
 ;;  <prim-binary> :=  + (primitiva-suma)
-;;                      :=  ~ (primitiva-resta)
-;;                      :=  / (primitiva-div)
-;;                      :=  * (primitiva-multi)
-;;                      :=  concat (primitiva-concat)
+;;                :=  ~ (primitiva-resta)
+;;                :=  / (primitiva-div)
+;;                :=  * (primitiva-multi)
+;;                :=  concat (primitiva-concat)
+;;                :=  % (primitiva-multi)
 
-;;<prim-unary>   :=  longitud (primitiva-longitud)
-;;                     :=  add1 (primitiva-add1)
-;;                     :=  sub1 (primitiva-sub1)
+;;  <prim-unary>  :=  length (primitiva-longitud)
+;;                :=  add1 (primitiva-add1)
+;;                :=  sub1 (primitiva-sub1)
 
+;; <expr-bool>    :=  <oper-bin-bool> ( <expression> , <expression> )?
+;;                := <oper-un-bool> (<expr-bool>)?
 
+;;  <prim-binary> :=  == (pred-igualdad)
+;;                :=  <> (pred-diferencia)
+;;                :=  > (pred-mayor-que)
+;;                :=  < (pred-menor-que)
+;;                :=  > (primitiva-concat)
+;;                :=  <= (pred-mayor-igual-que)
+;;                :=  >= (pred-menor-igual-que)
+;;                :=  and (pred-and)
+;;                :=  or (pred-or)
+
+;;  <oper-un-bool> :=  not (pred-not)
+
+;;  <prim-binary> :=  == (pred-igualdad)
+;;                :=  <> (pred-diferencia)
+;;                :=  > (pred-mayor-que)
+;;                :=  < (pred-menor-que)
+;;                :=  > (primitiva-concat)
+;;                :=  <= (pred-mayor-igual-que)
+;;                :=  >= (pred-menor-igual-que)
+;;                :=  and (pred-and)
+;;                :=  or (pred-or)
 
 ;****************************************************************************************** Lexica y la gramatica
 
@@ -639,7 +712,7 @@
        '()
         (cons (eval-expression (car exps) env) (list-exps (cdr exps) env)))))
 
-
+;---------------------------------------------------------------------------------------------------------
 (scan&parse "const ( @list=[2;3;4;5;6;7], @emptyList=[]) in { empty?(@list) }")
 (scan&parse "const ( @vector=vector[2;3;4;5;6;7], @vector2=make-vector(10), @list=[1;2;3;4;5]) in { vector?(@vector2) }")
 (scan&parse "const (@registro={@name: \"Cristian\"; @age: 10}) in { ref-record(@registro, @name) }")
